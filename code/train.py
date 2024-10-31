@@ -63,8 +63,8 @@ from model import Model
 import random
 
 # 指定mps为device
-# device = torch.device('mps' if torch.backends.mps.is_built() else 'cpu')
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('mps' if torch.backends.mps.is_built() else 'cpu')
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Model(embedding=node_embeddings).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -91,7 +91,7 @@ for epoch in tqdm(range(num_epoches)):
         optimizer.step()
     print('loss:', loss)
 #存储模型数据
-torch.save(model.state_dict(), 'param/model.pth')
+torch.save(model.state_dict(), 'param/mac_model.pth')
 
 
 
