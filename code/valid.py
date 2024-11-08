@@ -102,11 +102,9 @@ with torch.no_grad():  # 不需要梯度计算，提高速度并减少内存消�
         dest = [item[-1] for item in batch for j in range(len(item) - 1) for nbr in node_nbrs[item[j]]]
         nbr = [nbr for item in batch for j in range(len(item) - 1) for nbr in node_nbrs[item[j]]]
 
-        source_array = np.array([node_embeddings[node] for node in source])
-        source_embed = torch.from_numpy(source_array).to(device)
-        dest_array = np.array([node_embeddings[node] for node in dest])
-        dest_embed = torch.from_numpy(dest_array).to(device)
-        nbr_embed = torch.tensor([node_embeddings[node] for node in nbr]).to(device)
+        source_embed = torch.tensor(np.array([node_embeddings[node] for node in source])).to(device)
+        dest_embed = torch.tensor(np.array([node_embeddings[node] for node in dest])).to(device)
+        nbr_embed = torch.tensor(np.array([node_embeddings[node] for node in nbr])).to(device)
 
         input_embed = torch.cat((source_embed, dest_embed, nbr_embed), dim=1).to(device)
 

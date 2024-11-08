@@ -1,13 +1,22 @@
-#%% 边信息
 import geopandas as gpd
+import pickle
+import random
+import numpy as np
+import torch
+import torch.nn as nn
+from tqdm import tqdm
+import math
+import os
+import multiprocessing as mp
 
+from config import model_name
+print('model_name:', model_name)
+
+#%% 边信息
 # node_df = gpd.read_file('data/chengdu_data/map/nodes.shp')
 edge_df = gpd.read_file('data/chengdu_data/map/edges.shp')
 
 #%% 读取轨迹数据
-import pickle
-import random
-
 with open('data/chengdu_data/preprocessed_test_trips_small_osmid.pkl', 'rb') as f:
     test_data = pickle.load(f)
     f.close()
@@ -25,22 +34,10 @@ def get_route_length(trip):
         #     print(f"Edge not found for nodes {start_node} to {end_node}")
     return total_length
 
-# 构建数据集，并添加距离特征和轨迹类型标签
-def build_dataset(data):
-    new_data = []
-    for i in range(len(data)):
-        source = data[i][1][0]
-        dest = data[i][1][-1]
-        trip_time = data[i][2][0]
-        trip = data[i][1]
-        # 计算源节点到目的节点的直线距离（这里只是简单示例，实际可能需要更精确的距离计算）
-        distance = get_route_length(trip)
-        # demand_types# 0表示普通需求 # 1表示更短需求
-        demand_types = 0 if i < len(data)*0.8 else 1
-        new_data.append(([source, dest, trip_time, distance, demand_types], trip))
-    return new_data
-
-test_data = build_dataset(test_data)
+# 读取数据集
+with open('data/chengdu_data/test_data.pkl', 'rb') as f:
+    test_data = pickle.load(f)
+    f.close()
 
 #%% distance_max
 distance_max = max([item[0][3] for item in test_data])
@@ -71,69 +68,25 @@ for node in node_nbrs:
     if len(node_nbrs[node]) < max_nbrs:
         node_nbrs[node] += [-1] * (max_nbrs - len(node_nbrs[node]))
 
-# #%% 读取config中定义的参数
-# # 将当前目录加上/code添加到目录中
-# import os
-# import sys
-# sys.path.append(os.getcwd() + '/code')
-# import config
-#
-# params, _ = config.get_config()
-
 #%% 训练
 num_epoches = 10
 batch_size = 64
 
-from tqdm import tqdm
-import torch
-import torch.nn as nn
-# from model import Model
-import random
-
-
-class Model(nn.Module):
-    def __init__(self, embedding=None):
-        super(Model, self).__init__()
-        self.embedding = embedding
-        self.embedding_len = len(self.embedding[list(self.embedding.keys())[0]])
-        self.fc0 = nn.Linear(self.embedding_len * 3 + 1, 128)
-        self.fc1 = nn.Linear(self.embedding_len * 3, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 1)
-        # self.attention = nn.MultiheadAttention(embed_dim=embedding[0].shape[0], num_heads=1)
-
-    def forward(self, input_embed, demand_type, distances, distance_max):
-        # 根据需求类型调整输入特征的处理
-        shorter_mask = torch.eq(demand_type, 1)
-        if shorter_mask.any():
-            # 对于更短路线需求，对距离特征进行归一化处理（这里只是简单示例，可能需要更复杂的处理）
-            distances = distances / distance_max
-            input_embed = torch.cat((input_embed, distances.unsqueeze(-1)), dim=-1)
-            x = self.fc0(input_embed)
-        else:
-            # 对于实走轨迹需求，这里可以添加与历史轨迹特征相关的处理（在这个示例中暂时省略具体实现）
-            x = self.fc1(input_embed)
-            pass
-        #
-        # # 使用注意力机制关注重要特征
-        # input_embed, _ = self.attention(input_embed, input_embed, input_embed)
-
-        x = nn.functional.relu(x)
-        x = self.fc2(x)
-        x = nn.functional.relu(x)
-        x = self.fc3(x)
-        return x
+from pref_model import Model
 
 # # 指定cuda为device
 # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 指定mps为device
-device = torch.device('mps' if torch.backends.mps.is_built() else 'cpu')
+device = torch.device('cpu')
+# device = torch.device('mps' if torch.backends.mps.is_built() else 'cpu')
+# 打印当前使用的设备
+print(device)
 model = Model(embedding=node_embeddings).to(device)
 
 # %% 使用模型进行测试
 # 加载模型参数
-model.load_state_dict(torch.load('param/mac_pref_model.pth'))
+model.load_state_dict(torch.load('param/mac_pref_model_'+model_name+'.pth'))
 model.eval()  # 设置模型为评估模式
 
 # 准备测试数据
@@ -141,19 +94,17 @@ predictions = []
 targets = []
 
 with torch.no_grad():  # 不需要梯度计算，提高速度并减少内存消耗
-    for i in range(0, len(test_data), batch_size):
+    for i in tqdm(range(0, len(test_data), batch_size)):
         batch = [item[1] for item in test_data[i:i + batch_size]]
         source = [item[j] for item in batch for j in range(len(item) - 1) for nbr in node_nbrs[item[j]]]
         dest = [item[-1] for item in batch for j in range(len(item) - 1) for nbr in node_nbrs[item[j]]]
         nbr = [nbr for item in batch for j in range(len(item) - 1) for nbr in node_nbrs[item[j]]]
-        distances = [test_data[i + j // (len(item) - 1)][0][3] for item in batch for j in range(len(item) - 1) for nbr
-                     in node_nbrs[item[j]]]
-        demand_types = [test_data[i + j // (len(item) - 1)][0][4] for item in batch for j in range(len(item) - 1) for
-                        nbr in node_nbrs[item[j]]]
+        distances = [test_data[i + k][0][3] for k, item in enumerate(batch) for j in range(len(item) - 1) for _ in node_nbrs[item[j]]]
+        demand_types = [test_data[i + k][0][4] for k, item in enumerate(batch) for j in range(len(item) - 1) for _ in node_nbrs[item[j]]]
 
-        source_embed = torch.tensor([node_embeddings[node] for node in source]).to(device)
-        dest_embed = torch.tensor([node_embeddings[node] for node in dest]).to(device)
-        nbr_embed = torch.tensor([node_embeddings[node] for node in nbr]).to(device)
+        source_embed = torch.tensor(np.array([node_embeddings[node] for node in source])).to(device)
+        dest_embed = torch.tensor(np.array([node_embeddings[node] for node in dest])).to(device)
+        nbr_embed = torch.tensor(np.array([node_embeddings[node] for node in nbr])).to(device)
         input_embed = torch.cat((source_embed, dest_embed, nbr_embed), dim=1).to(device)
         distances = torch.tensor(distances, dtype=torch.float32).to(device)
         demand_types = torch.tensor(demand_types, dtype=torch.float32).to(device)
@@ -177,9 +128,9 @@ with torch.no_grad():  # 不需要梯度计算，提高速度并减少内存消�
 # print("Targets shape:", len(targets))
 
 #%% 对比predictions和targets的重叠率
-overlap = sum(p == t for p, t in zip(predictions, targets))
-overlap_score = overlap / len(targets)
-print("Overlap Score:", overlap_score)
+# overlap = sum(p == t for p, t in zip(predictions, targets))
+# overlap_score = overlap / len(targets)
+# print("Overlap Score:", overlap_score)
 
 # %% 计算预测路径与原始路径的重合度
 from collections import defaultdict
@@ -216,7 +167,7 @@ for i, test_item in enumerate(test_data):
 # 计算重合度
 overlap_scores = []
 pred_path_length_list = []
-for pred_path, orig_path in zip(predicted_paths, original_paths):
+for pred_path, orig_path in tqdm(zip(predicted_paths, original_paths)):
     # 计算pred_path的长度
     pred_path_length = get_route_length(pred_path)
     pred_path_length_list.append(pred_path_length)
