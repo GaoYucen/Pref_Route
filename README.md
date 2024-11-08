@@ -15,12 +15,35 @@ code
 
 
 
-Res
+Res（最后没添加非线性激活层）
 
-| Model/Metric | Overlap | Length  |
-| ------------ | ------- | ------- |
-| model        | 0.904   | 4082.05 |
-| pref_model   | 0.606   | 3112.57 |
+| Model/Metric | 数据          | Loss                                      | Overlap | Length  |
+| ------------ | ------------- | ----------------------------------------- | ------- | ------- |
+| model        | 全偏好        | 交叉熵loss_ce                             | 0.904   | 4082.05 |
+| pref_model   | 全长度        | loss_ce+10*loss_length                    | 0.606   | 3112.57 |
+| pref_model   | 全长度        | loss_ce+e^-loss_length                    | 0.904   | 4069.54 |
+| pref_model   | 8:2偏好：长度 | loss_ce+e^-loss_length                    | 0.896   | 4074.65 |
+| pref_model   | 全长度        | loss_ce+loss_length^0.2 (放大loss_length) |         |         |
+
+
+
+Res，添加sigmoid层（目前感觉sigmoid层好像效果很差）
+
+| Model/Metric | 数据   | Loss                    | Overlap | Length  |
+| ------------ | ------ | ----------------------- | ------- | ------- |
+| pref_model   | 全长度 | loss_ce                 | 0.498   | 2778.35 |
+| pref_model   | 全长度 | loss_ce+10*loss_length  | 0.498   | 2789.31 |
+| pref_model   | 全长度 | loss_ce+loss_length^0.2 | 0.508   | 2557.61 |
+
+
+
+Res，添加Relu层
+
+| Model/Metric | 数据   | Loss                    | Overlap | Length  |
+| ------------ | ------ | ----------------------- | ------- | ------- |
+| model        | 全偏好 | 交叉熵loss_ce           | 0.883   | 4026.11 |
+| pref_model   | 全长度 | loss_ce+30*loss_length  | 0.524   | 2506.71 |
+| pref_model   | 全长度 | loss_ce+loss_length^0.2 | 0.896   | 4062.63 |
 
 
 
